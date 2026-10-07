@@ -538,8 +538,8 @@ async function handleCommand(interaction) {
                 .setTitle('FlowDiscordConsoleCmds – Setup Guide')
                 .setDescription('Bridge your Minecraft server console directly into Discord.')
                 .addFields(
-                    { name: '1.  Download & install the plugin',
-                      value: 'Get the latest `FlowDiscordConsoleCmds.jar` (Paper/Spigot 1.18+):\n> https://github.com/johann123-a11y/flow-discord-console-cmds/releases/latest\nDrop it into `plugins/` and start the server once.' },
+                    { name: '1.  Install the plugin',
+                      value: 'You receive `FlowDiscordConsoleCmds.jar` after purchase.\nDrop it into your server\'s `plugins/` folder and start the server once.' },
                     { name: '2.  Configure',
                       value: 'Edit `plugins/FlowDiscordConsoleCmds/config.yml`, then run `/flowcmds reload`:\n```yaml\nbot-url: "ws://YOUR_VPS_IP:8005"\nserver-name: "My Server"\n```' },
                     { name: '3.  Get a link code',
