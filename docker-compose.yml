@@ -14,7 +14,7 @@ services:
       DISCORD_TOKEN:  ${DISCORD_TOKEN}
       CLIENT_ID:      ${CLIENT_ID}
       GUILD_ID:       ${GUILD_ID}
-      BOT_WS_PORT:    ${BOT_WS_PORT:-9090}
+      BOT_WS_PORT:    "8080"   # port inside the container; the host port is set under ports:
     profiles: ["dev"]
 
   flow-discord-console-cmds-prod:
@@ -31,7 +31,7 @@ services:
       DISCORD_TOKEN:  ${DISCORD_TOKEN}
       CLIENT_ID:      ${CLIENT_ID}
       GUILD_ID:       ${GUILD_ID}
-      BOT_WS_PORT:    ${BOT_WS_PORT:-9090}
+      BOT_WS_PORT:    "8080"   # port inside the container; the host port is set under ports:
     profiles: ["prod"]
 
 volumes:

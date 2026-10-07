@@ -1,8 +1,8 @@
 require('dotenv').config();
 
-const { REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
-const REGISTER_GUILD = '1482117940064289013';
+const REGISTER_GUILD = process.env.ADMIN_GUILD_ID || '1482117940064289013';
 
 // Available in every Discord server
 const globalCommands = [
@@ -13,8 +13,8 @@ const globalCommands = [
     new SlashCommandBuilder()
         .setName('link')
         .setDescription('Link this channel to a Minecraft server')
-        .addStringOption(o => o.setName('code').setDescription('Link code from the plugin console').setRequired(true))
-        .addStringOption(o => o.setName('label').setDescription('Friendly name for this server').setRequired(false)),
+        .addStringOption(o => o.setName('code').setDescription('Link code from the plugin console').setRequired(true).setMaxLength(32))
+        .addStringOption(o => o.setName('label').setDescription('Friendly name for this server').setRequired(false).setMaxLength(64)),
 
     new SlashCommandBuilder()
         .setName('unlink')
@@ -31,15 +31,17 @@ const globalCommands = [
     new SlashCommandBuilder()
         .setName('console')
         .setDescription('Execute a command on the linked Minecraft server console')
-        .addStringOption(o => o.setName('command').setDescription('Console command (e.g. list, say Hello, op Player, stop)').setRequired(true)),
-].map(c => c.toJSON());
+        .addStringOption(o => o.setName('command').setDescription('Console command (e.g. list, say Hello, op Player, stop)').setRequired(true).setMaxLength(1000)),
+]
+    // Only visible to administrators, never in DMs
+    .map(c => c.setDefaultMemberPermissions(PermissionFlagsBits.Administrator).setDMPermission(false).toJSON());
 
 // Only exist in the admin guild
 const adminCommands = [
     new SlashCommandBuilder()
         .setName('register')
         .setDescription('Authorize a Discord server to use FlowConsoleCmds')
-        .addStringOption(o => o.setName('guild_id').setDescription('Server ID to authorize').setRequired(true)),
+        .addStringOption(o => o.setName('guild_id').setDescription('Server ID to authorize').setRequired(true).setMaxLength(20)),
 
     new SlashCommandBuilder()
         .setName('unregister')
