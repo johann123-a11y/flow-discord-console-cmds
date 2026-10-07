@@ -6,7 +6,7 @@
 #  2. Enter the code you get here:  /flowcmds link <code>
 #  Done: every console line shows up there, and /console <command> runs commands.
 
-bot-url: "ws://178.105.194.236/mc"
+bot-url: "wss://flowdevservercheck.duckdns.org:8001/mc"
 
 # Name shown in Discord for this server
 server-name: "My Minecraft Server"
