@@ -5,7 +5,7 @@ services:
     container_name: flow-discord-console-cmds-dev
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8005:8005"
     volumes:
       - flow-console-data-dev:/app/data
     networks:
@@ -14,7 +14,7 @@ services:
       DISCORD_TOKEN:  ${DISCORD_TOKEN}
       CLIENT_ID:      ${CLIENT_ID}
       GUILD_ID:       ${GUILD_ID}
-      BOT_WS_PORT:    "8080"   # port inside the container; the host port is set under ports:
+      BOT_WS_PORT:    "8005"
     profiles: ["dev"]
 
   flow-discord-console-cmds-prod:
@@ -22,7 +22,7 @@ services:
     container_name: flow-discord-console-cmds-prod
     restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "8005:8005"
     volumes:
       - flow-console-data-prod:/app/data
     networks:
@@ -31,7 +31,7 @@ services:
       DISCORD_TOKEN:  ${DISCORD_TOKEN}
       CLIENT_ID:      ${CLIENT_ID}
       GUILD_ID:       ${GUILD_ID}
-      BOT_WS_PORT:    "8080"   # port inside the container; the host port is set under ports:
+      BOT_WS_PORT:    "8005"
     profiles: ["prod"]
 
 volumes:

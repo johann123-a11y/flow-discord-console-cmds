@@ -197,7 +197,7 @@ async function flushChannel(channelId) {
 
 // ─── WebSocket server – Minecraft plugins connect here ────────────────────────
 
-const BOT_WS_PORT = parseInt(process.env.BOT_WS_PORT || '8080', 10);
+const BOT_WS_PORT = parseInt(process.env.BOT_WS_PORT || '8005', 10);
 const wss = new WebSocket.Server({ port: BOT_WS_PORT, maxPayload: 1024 * 1024 });
 
 wss.on('listening', () =>
@@ -442,7 +442,7 @@ async function handleCommand(interaction) {
                     { name: '1.  Download & install the plugin',
                       value: 'Get the latest `FlowDiscordConsoleCmds.jar` (Paper/Spigot 1.18+):\n> https://github.com/johann123-a11y/flow-discord-console-cmds/releases/latest\nDrop it into `plugins/` and start the server once.' },
                     { name: '2.  Configure',
-                      value: 'Edit `plugins/FlowDiscordConsoleCmds/config.yml`, then run `/flowcmds reload`:\n```yaml\nbot-url: "ws://YOUR_VPS_IP:8080"\nserver-name: "My Server"\n```' },
+                      value: 'Edit `plugins/FlowDiscordConsoleCmds/config.yml`, then run `/flowcmds reload`:\n```yaml\nbot-url: "ws://YOUR_VPS_IP:8005"\nserver-name: "My Server"\n```' },
                     { name: '3.  Get your link code',
                       value: 'The server console shows `/link XXXX-XXXX` (or run `/flowcmds code`). Keep it private – whoever links it controls the console.' },
                     { name: '4.  Link this channel',
@@ -452,7 +452,7 @@ async function handleCommand(interaction) {
                     { name: 'In-game commands',
                       value: '`/flowcmds status | code | reconnect | reload | reset confirm`' },
                     { name: 'Requirements',
-                      value: '- This Discord server must be registered by the bot owner\n- VPS port **8080** open in firewall\n- Administrator permission in Discord' }
+                      value: '- This Discord server must be registered by the bot owner\n- VPS port **8005** open in firewall\n- Administrator permission in Discord' }
                 )
                 .setFooter({ text: 'FlowDiscordConsoleCmds • Bukkit/Spigot/Paper' })
             ],
