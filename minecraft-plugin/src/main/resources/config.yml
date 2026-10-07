@@ -1,21 +1,63 @@
-connection:
-  # Full WebSocket URL of the Discord bot
-  bot-url: "ws://your-vps-ip:8080"
-  server-name: "My Minecraft Server"
-  # Auto-generated on first start – copy this and run /link <code> in Discord
-  link-code: auto
+# ============================================================
+#  FlowDiscordConsoleCmds - your server console, live in Discord
+#  Works with the flow-discord-console-cmds bot
+#  (github.com/johann123-a11y/flow-discord-console-cmds)
+# ============================================================
+#
+#  1. Set bot-url below and run /flowcmds reload
+#  2. The console prints a LINK CODE (or run: /flowcmds code)
+#  3. In the Discord channel that should become the console:  /link <code>
+#  Done: every console line shows up there, and /console <command> runs commands.
 
-console:
-  min-level: INFO
-  hide-ips: true   # replaces IP addresses in console output with [hidden]
-  ignored-loggers:
-    - "org.java_websocket"
-    - "de.flowdev.consolecmds.shaded"
-    - "com.mojang.authlib"
-    - "io.netty"
+# Address of the bot (WebSocket): ws://VPS_IP:PORT
+# Docker setup of the bot: dev container = port 8080, prod container = port 8081
+bot-url: "ws://127.0.0.1:8080"
 
-commands:
-  allow-commands: true   # set to false to make this channel watch-only
-  blocked-commands:      # these commands are always rejected even if allow-commands is true
-    - "op"
-    - "deop"
+# Name shown in Discord for this server
+server-name: "My Minecraft Server"
+
+# ---------- Commands from Discord ----------
+
+# false = Discord can only watch the console, not run commands
+allow-commands: true
+
+# Commands that can NOT be run from Discord (without "/").
+# Also blocks them inside "execute ... run <command>" and under every alias of a plugin
+# command (blocking "lp" also blocks "luckperms"). Best effort - for full safety use allow-commands: false.
+# Example: ["op", "deop", "lp"]
+blocked-commands: []
+
+# Write "[Discord] <user> issued server command: /<command>" into the console, like Paper does for players
+log-command-usage: true
+
+# Keep an audit file of every command from Discord (who, what, result):
+# plugins/FlowDiscordConsoleCmds/commands.log
+command-log-file: true
+
+# ---------- What is streamed ----------
+# Everything the real console shows - from the very first startup line
+# (lines printed before the plugin loaded are read back from logs/latest.log).
+
+# Keep plugin colors (§a, §c, ANSI ...) as colors in Discord, like a colored console
+console-colors: true
+
+# Lowest level that is sent: INFO, WARN or ERROR (DEBUG/TRACE also possible)
+min-level: INFO
+
+# Include full stack traces of errors
+include-stacktraces: true
+
+# Replace IP addresses with "x.x.x.x" (player login lines contain IPs!)
+hide-ips: true
+
+# Lines matching any of these regular expressions are NOT sent
+ignore-patterns:
+# - "^Can't keep up!.*"
+  - ".*issued server command: /login .*"
+  - ".*issued server command: /register .*"
+
+# Lines buffered while the bot is unreachable (oldest are dropped above this)
+max-queued-lines: 5000
+
+# How often player count / TPS / RAM are sent to the bot (for /status), in seconds
+status-interval-seconds: 30
