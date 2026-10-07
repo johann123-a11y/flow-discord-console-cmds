@@ -1,0 +1,21 @@
+connection:
+  # Full WebSocket URL of the Discord bot
+  bot-url: "ws://your-vps-ip:8080"
+  server-name: "My Minecraft Server"
+  # Auto-generated on first start – copy this and run /link <code> in Discord
+  link-code: auto
+
+console:
+  min-level: INFO
+  hide-ips: true   # replaces IP addresses in console output with [hidden]
+  ignored-loggers:
+    - "org.java_websocket"
+    - "de.flowdev.consolecmds.shaded"
+    - "com.mojang.authlib"
+    - "io.netty"
+
+commands:
+  allow-commands: true   # set to false to make this channel watch-only
+  blocked-commands:      # these commands are always rejected even if allow-commands is true
+    - "op"
+    - "deop"

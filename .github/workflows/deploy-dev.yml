@@ -1,0 +1,37 @@
+name: Deploy → Dev
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS (dev)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/dev/Projects/flow-discord-console-cmds
+
+            git fetch origin
+            git checkout dev
+            git pull origin dev
+
+            npm install
+
+            DISCORD_TOKEN="${{ secrets.DISCORD_TOKEN }}" \
+            CLIENT_ID="${{ secrets.CLIENT_ID }}" \
+            node deploy-commands.js
+
+            DISCORD_TOKEN="${{ secrets.DISCORD_TOKEN }}" \
+            CLIENT_ID="${{ secrets.CLIENT_ID }}" \
+            BOT_WS_PORT="${{ secrets.BOT_WS_PORT }}" \
+            docker compose --profile dev up -d --build flow-discord-console-cmds-dev
+
+            echo "Dev deployment complete"

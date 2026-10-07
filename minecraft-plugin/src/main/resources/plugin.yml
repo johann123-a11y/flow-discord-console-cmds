@@ -1,0 +1,16 @@
+name: FlowDiscordConsoleCmds
+version: 1.0.0
+main: de.flowdev.consolecmds.FlowDiscordConsoleCmds
+description: Bridge Minecraft console to Discord via WebSocket
+author: FlowDev
+
+commands:
+  flowcmds:
+    description: FlowDiscordConsoleCmds management
+    usage: /flowcmds <status|code|reconnect|reload|reset confirm>
+    permission: flowcmds.admin
+
+permissions:
+  flowcmds.admin:
+    description: Access to /flowcmds
+    default: op
