@@ -9,8 +9,8 @@ authors: [Flow]
 
 commands:
   flowcmds:
-    description: Show the link code, connection status, or reconnect to the bot
-    usage: /flowcmds <status|code|reconnect|reload|reset>
+    description: Link this server to a Discord channel, show the connection status, or reconnect
+    usage: /flowcmds <link <code>|unlink|status|reconnect|reload|reset>
     permission: flowcmds.admin
 
 permissions:

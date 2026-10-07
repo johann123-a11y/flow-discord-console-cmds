@@ -28,10 +28,10 @@ import java.util.regex.Pattern;
 public final class FlowDiscordConsoleCmds extends JavaPlugin implements BridgeClient.Handler {
 
     private static final Pattern CONTROL = Pattern.compile("\\p{Cntrl}");
-    private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I mix-ups
+    private static final String ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
     private volatile Settings settings;
-    private volatile String linkCode;
+    private volatile String serverId;
     private BridgeClient bridge;
     private ConsoleAppender appender;
     private CommandLog commandLog;
@@ -52,9 +52,9 @@ public final class FlowDiscordConsoleCmds extends JavaPlugin implements BridgeCl
         }
         saveDefaultConfig();
         loadSettings();
-        loadOrCreateCode(false);
+        loadOrCreateServerId(false);
 
-        bridge = new BridgeClient(() -> settings, () -> linkCode, Bukkit.getVersion(), getLogger(), this);
+        bridge = new BridgeClient(() -> settings, () -> serverId, Bukkit.getVersion(), getLogger(), this);
         bridge.setPlayerCounts(0, Bukkit.getMaxPlayers());
         appender = new ConsoleAppender(() -> settings, bridge);
         appender.start();
@@ -101,33 +101,35 @@ public final class FlowDiscordConsoleCmds extends JavaPlugin implements BridgeCl
     }
 
     /**
-     * The link code identifies this server at the bot: whoever links it in Discord controls
-     * this console. Created once and kept in data.yml.
+     * Secret ID of this server at the bot; Discord channels are linked to it.
+     * Created once and kept in data.yml. Older versions called it "link-code".
      */
-    private void loadOrCreateCode(boolean forceNew) {
+    private void loadOrCreateServerId(boolean forceNew) {
         File file = new File(getDataFolder(), "data.yml");
         YamlConfiguration data = YamlConfiguration.loadConfiguration(file);
-        String c = data.getString("link-code", "");
-        if (forceNew || !c.matches("[A-Z0-9]{4}-[A-Z0-9]{4}")) {
+        String id = data.getString("server-id", data.getString("link-code", "")).trim().toUpperCase(Locale.ROOT);
+        boolean save = data.contains("link-code") || data.contains("server-token");
+        if (forceNew || !id.matches("[A-Z0-9-]{4,32}")) {
             SecureRandom rnd = new SecureRandom();
             StringBuilder b = new StringBuilder();
-            for (int i = 0; i < 8; i++) {
-                if (i == 4) b.append('-');
-                b.append(CODE_CHARS.charAt(rnd.nextInt(CODE_CHARS.length())));
-            }
-            c = b.toString();
-            data.options().header("Link code of this server. Whoever links it in Discord controls this console - keep it private.\n"
-                    + "Run /flowcmds reset confirm to get a new one (the old Discord link stops working).");
-            data.set("link-code", c);
-            data.set("server-token", null); // from plugin 1.1.0, no longer used
+            for (int i = 0; i < 24; i++) b.append(ID_CHARS.charAt(rnd.nextInt(ID_CHARS.length())));
+            id = b.toString();
+            save = true;
+        }
+        if (save) {
+            data.options().header("Secret ID of this server at the Discord bot - never share it.\n"
+                    + "Run /flowcmds reset confirm to get a new one (all Discord links of this server stop working).");
+            data.set("server-id", id);
+            data.set("link-code", null);
+            data.set("server-token", null);
             try {
                 getDataFolder().mkdirs();
                 data.save(file);
             } catch (IOException e) {
-                getLogger().severe("Could not save data.yml - the link code will change on every restart: " + e);
+                getLogger().severe("Could not save data.yml - the Discord link will be lost on every restart: " + e);
             }
         }
-        linkCode = c;
+        serverId = id;
     }
 
     private void startStatusTask() {
@@ -273,30 +275,41 @@ public final class FlowDiscordConsoleCmds extends JavaPlugin implements BridgeCl
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        String sub = args.length == 0 ? "status" : args[0].toLowerCase();
+        String sub = args.length == 0 ? "status" : args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
+            case "link" -> {
+                if (args.length < 2) {
+                    sender.sendMessage(ChatColor.YELLOW + "Usage: /" + label + " link <code>");
+                    sender.sendMessage(ChatColor.GRAY + "Get the code with " + ChatColor.WHITE + "/link" + ChatColor.GRAY
+                            + " in the Discord channel that should become the console.");
+                    return true;
+                }
+                sender.sendMessage(ChatColor.GRAY + "Linking with Discord...");
+                String who = sender.getName();
+                bridge.claimLinkCode(args[1], r -> reply(sender, r));
+                getLogger().info(who + " entered a Discord link code");
+            }
+            case "unlink" -> {
+                sender.sendMessage(ChatColor.GRAY + "Unlinking from Discord...");
+                bridge.requestUnlink(r -> reply(sender, r));
+            }
             case "status" -> {
                 sender.sendMessage(ChatColor.GOLD + "FlowDiscordConsoleCmds " + getDescription().getVersion());
                 sender.sendMessage(ChatColor.GRAY + "Bot: " + ChatColor.WHITE + settings.botUrl);
                 sender.sendMessage(ChatColor.GRAY + "State: " + ChatColor.WHITE + bridge.state());
-                sender.sendMessage(ChatColor.GRAY + "Link code: " + ChatColor.AQUA + linkCode
-                        + (bridge.isConnected() ? (bridge.isLinked() ? ChatColor.GREEN + "  (linked)" : ChatColor.YELLOW + "  (not linked yet)") : ""));
+                if (bridge.isConnected()) {
+                    sender.sendMessage(ChatColor.GRAY + "Discord: " + (bridge.isLinked()
+                            ? ChatColor.GREEN + "linked"
+                            : ChatColor.YELLOW + "not linked - run /link in Discord, then /" + label + " link <code>"));
+                }
                 sender.sendMessage(ChatColor.GRAY + "Lines sent: " + ChatColor.WHITE + bridge.sentLines()
                         + ChatColor.GRAY + "   waiting: " + ChatColor.WHITE + bridge.queuedLines());
                 String err = bridge.lastError();
                 sender.sendMessage(ChatColor.GRAY + "Last error: " + (err == null ? ChatColor.GREEN + "none" : ChatColor.RED + err));
             }
-            case "code" -> {
-                sender.sendMessage(ChatColor.GRAY + "Link code: " + ChatColor.AQUA + ChatColor.BOLD + linkCode);
-                if (bridge.isLinked()) {
-                    sender.sendMessage(ChatColor.GREEN + "Already linked. " + ChatColor.GRAY
-                            + "It can be linked in more channels with the same command.");
-                } else {
-                    sender.sendMessage(ChatColor.GRAY + "Run " + ChatColor.WHITE + "/link " + linkCode
-                            + ChatColor.GRAY + " in the Discord channel that should become the console.");
-                }
-                if (!bridge.isConnected()) sender.sendMessage(ChatColor.RED + "Not connected to the bot right now: " + bridge.state());
-            }
+            case "code" -> sender.sendMessage(ChatColor.YELLOW + "Linking works the other way round now: run "
+                    + ChatColor.WHITE + "/link" + ChatColor.YELLOW + " in Discord and enter the code here with "
+                    + ChatColor.WHITE + "/" + label + " link <code>");
             case "reconnect" -> {
                 bridge.reconnect();
                 sender.sendMessage(ChatColor.GREEN + "Reconnecting to the bot...");
@@ -310,24 +323,32 @@ public final class FlowDiscordConsoleCmds extends JavaPlugin implements BridgeCl
             }
             case "reset" -> {
                 if (args.length < 2 || !args[1].equalsIgnoreCase("confirm")) {
-                    sender.sendMessage(ChatColor.YELLOW + "This creates a new link code. Discord channels linked to the old code stop working.");
-                    sender.sendMessage(ChatColor.YELLOW + "Type " + ChatColor.WHITE + "/flowcmds reset confirm" + ChatColor.YELLOW + " to continue.");
+                    sender.sendMessage(ChatColor.YELLOW + "This gives the server a new ID: all its Discord links stop working and it has to be linked again.");
+                    sender.sendMessage(ChatColor.YELLOW + "Type " + ChatColor.WHITE + "/" + label + " reset confirm" + ChatColor.YELLOW + " to continue.");
                     return true;
                 }
-                loadOrCreateCode(true);
+                loadOrCreateServerId(true);
                 bridge.reconnect();
-                sender.sendMessage(ChatColor.GREEN + "New link code: " + ChatColor.AQUA + linkCode
-                        + ChatColor.GREEN + " - run /link " + linkCode + " in Discord.");
+                sender.sendMessage(ChatColor.GREEN + "New server ID created. Link it again: /link in Discord, then /" + label + " link <code>");
             }
-            default -> sender.sendMessage(ChatColor.YELLOW + "/" + label + " <status|code|reconnect|reload|reset>");
+            default -> sender.sendMessage(ChatColor.YELLOW + "/" + label + " <link <code>|unlink|status|reconnect|reload|reset>");
         }
         return true;
+    }
+
+    /** Answers from the bot arrive on the bridge thread; messages go out on the main thread. */
+    private void reply(CommandSender sender, BridgeClient.Result r) {
+        String msg = (r.ok() ? ChatColor.GREEN + "\u2714 " : ChatColor.RED + "\u2718 ") + r.message();
+        try {
+            Bukkit.getScheduler().runTask(this, () -> sender.sendMessage(msg));
+        } catch (RuntimeException ignored) { // plugin disabling
+        }
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("status", "code", "reconnect", "reload", "reset").stream()
+            return List.of("link", "unlink", "status", "reconnect", "reload", "reset").stream()
                     .filter(s -> s.startsWith(args[0].toLowerCase())).toList();
         }
         return List.of();

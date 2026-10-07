@@ -8,12 +8,17 @@ import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 
@@ -22,11 +27,13 @@ import java.util.logging.Logger;
  * runs on one thread, so the socket is never written to concurrently.
  *
  * Protocol of the bot (JSON text frames):
- *   plugin -> bot: hello {code, name, version, players, maxPlayers}
+ *   plugin -> bot: hello {code: server id, name, version, players, maxPlayers}
  *                  log {data: "one console line"}
  *                  stats {players, maxPlayers, playerNames, tps, ram, uptime, chunks, entities, plugins}
  *                  pong {players, maxPlayers}
- *   bot -> plugin: linked | unlinked (answer to hello, and on /link /unlink)
+ *                  claim {id, code: code from /link}   unlink-request {id}
+ *   bot -> plugin: linked | unlinked (answer to hello, and whenever that changes)
+ *                  result {id, ok, message} (answer to claim / unlink-request)
  *                  exec {data: "command"}
  *                  ping
  * The bot routes by link code; lines are always sent, the bot posts them to the linked channel(s)
@@ -35,6 +42,8 @@ import java.util.logging.Logger;
 final class BridgeClient implements WebSocket.Listener {
 
     record LogLine(long time, String level, String text) {}
+
+    record Result(boolean ok, String message) {}
 
     interface Handler {
         void onCommand(String command);
@@ -47,10 +56,11 @@ final class BridgeClient implements WebSocket.Listener {
     private static final long LOGIN_TIMEOUT_MS = 15_000;
     private static final long PING_INTERVAL_MS = 30_000;        // the bot sends no heartbeat, so we ping it
     private static final long SILENCE_TIMEOUT_MS = 90_000;
-    private static final int CLOSE_REPLACED = 4004;             // bot: same code connected again
+    private static final int CLOSE_REPLACED = 4004;             // bot: same server id connected again
+    private static final long REQUEST_TIMEOUT_MS = 15_000;
 
     private final Supplier<Settings> settings;
-    private final Supplier<String> linkCode;
+    private final Supplier<String> serverId;
     private final String serverVersion;
     private final Logger log;
     private final Handler handler;
@@ -78,6 +88,7 @@ final class BridgeClient implements WebSocket.Listener {
     private long connectedAt;
     private long lastPingSent;
     private final StringBuilder incoming = new StringBuilder();
+    private final Map<String, Consumer<Result>> pending = new HashMap<>();
 
     // Read from other threads
     private volatile long lastReceived;
@@ -89,9 +100,9 @@ final class BridgeClient implements WebSocket.Listener {
     private volatile int players;
     private volatile int maxPlayers;
 
-    BridgeClient(Supplier<Settings> settings, Supplier<String> linkCode, String serverVersion, Logger log, Handler handler) {
+    BridgeClient(Supplier<Settings> settings, Supplier<String> serverId, String serverVersion, Logger log, Handler handler) {
         this.settings = settings;
-        this.linkCode = linkCode;
+        this.serverId = serverId;
         this.serverVersion = serverVersion;
         this.log = log;
         this.handler = handler;
@@ -136,6 +147,42 @@ final class BridgeClient implements WebSocket.Listener {
             closeSocket("Reconnecting");
             connect();
         });
+    }
+
+    /** Code from /link in Discord, entered with "flowcmds link <code>". Callback runs on the bridge thread. */
+    void claimLinkCode(String code, Consumer<Result> callback) {
+        request("claim", o -> o.addProperty("code", code), callback);
+    }
+
+    /** "flowcmds unlink": removes this server from all its Discord channels. */
+    void requestUnlink(Consumer<Result> callback) {
+        request("unlink-request", o -> {}, callback);
+    }
+
+    private void request(String type, Consumer<JsonObject> fill, Consumer<Result> callback) {
+        run(() -> {
+            if (!authed) {
+                callback.accept(new Result(false, "Not connected to the Discord bot: " + state + " (see /flowcmds status)"));
+                return;
+            }
+            String id = UUID.randomUUID().toString();
+            JsonObject o = new JsonObject();
+            o.addProperty("type", type);
+            o.addProperty("id", id);
+            fill.accept(o);
+            pending.put(id, callback);
+            try {
+                exec.schedule(() -> finish(id, new Result(false, "No answer from the bot - try again.")), REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException ignored) {
+            }
+            if (!send(o)) finish(id, new Result(false, "Lost the connection to the bot - try again."));
+        });
+    }
+
+    /** Exec thread. */
+    private void finish(String id, Result r) {
+        Consumer<Result> cb = pending.remove(id);
+        if (cb != null) cb.accept(r);
     }
 
     void setPlayerCounts(int online, int max) {
@@ -247,7 +294,7 @@ final class BridgeClient implements WebSocket.Listener {
     private void sendHello() {
         JsonObject o = new JsonObject();
         o.addProperty("type", "hello");
-        o.addProperty("code", linkCode.get());
+        o.addProperty("code", serverId.get());
         o.addProperty("name", settings.get().serverName);
         o.addProperty("version", serverVersion);
         o.addProperty("players", players);
@@ -289,6 +336,7 @@ final class BridgeClient implements WebSocket.Listener {
         ws = null;
         authed = false;
         incoming.setLength(0);
+        for (String id : new ArrayList<>(pending.keySet())) finish(id, new Result(false, "Lost the connection to the bot - try again."));
         if (shuttingDown) return;
         if (wasAuthed) log.warning("Lost connection to the Discord bot (" + lastError + ") - reconnecting...");
         scheduleReconnect();
@@ -411,8 +459,9 @@ final class BridgeClient implements WebSocket.Listener {
 
     private void handle(JsonObject m) {
         switch (str(m, "type")) {
-            case "linked" -> onLinked();
+            case "linked" -> onLinked(str(m, "channelName"), str(m, "guildName"));
             case "unlinked" -> onUnlinked();
+            case "result" -> finish(str(m, "id"), new Result(m.has("ok") && m.get("ok").getAsBoolean(), str(m, "message")));
             case "exec" -> handler.onCommand(str(m, "data"));
             case "ping" -> {
                 JsonObject pong = new JsonObject();
@@ -437,31 +486,32 @@ final class BridgeClient implements WebSocket.Listener {
         return first;
     }
 
-    private void onLinked() {
+    private void onLinked(String channel, String guild) {
         boolean first = markAuthed();
         boolean wasLinked = linked;
         linked = true;
         state = "connected, linked to Discord";
         if (first) log.info("Connected to the Discord bot - the console is live in Discord.");
-        else if (!wasLinked) log.info("This server is now linked to a Discord channel.");
+        else if (!wasLinked || !channel.isEmpty()) {
+            log.info("This server is now linked to Discord" + (channel.isEmpty() ? "." : ": #" + channel + (guild.isEmpty() ? "" : " in " + guild)));
+        }
     }
 
     private void onUnlinked() {
         boolean first = markAuthed();
         boolean wasLinked = linked;
         linked = false;
-        state = "connected, NOT linked yet - code " + linkCode.get();
-        if (wasLinked && !first) log.warning("This server was unlinked from its Discord channel.");
-        if (first || wasLinked) printLinkCode();
+        state = "connected, NOT linked to a Discord channel yet";
+        if (wasLinked && !first) log.warning("This server was unlinked from Discord.");
+        if (first || wasLinked) printLinkHelp();
     }
 
-    void printLinkCode() {
-        String code = linkCode.get();
+    void printLinkHelp() {
         String bar = "==========================================================";
         log.info(bar);
-        log.info(" Discord console link code:   " + code);
-        log.info(" In the Discord channel that should become the console run:");
-        log.info("   /link " + code);
+        log.info(" This server is not linked to Discord yet.");
+        log.info(" 1. In the Discord channel that should become the console run:  /link");
+        log.info(" 2. Enter the code you get here:  flowcmds link <code>");
         log.info(bar);
     }
 

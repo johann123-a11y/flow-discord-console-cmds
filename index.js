@@ -4,8 +4,9 @@ const {
     Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits, MessageFlags, escapeMarkdown
 } = require('discord.js');
 const WebSocket = require('ws');
-const fs   = require('fs');
-const path = require('path');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,9 @@ const NO_MENTIONS   = { parse: [] };
 const MAX_MESSAGE   = 1990 - '```ansi\n\n```'.length;
 const MAX_BUFFER    = 2000;   // lines waiting per channel before the oldest are dropped
 const MAX_LINE      = 30000;  // one log entry (stack traces included)
+const LINK_TTL      = 10 * 60 * 1000;                      // a /link code is valid for 10 minutes
+const LINK_CHARS    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // no 0/O/1/I mix-ups
+const MAX_FAILED_CLAIMS = 5;                               // wrong codes per server per 10 minutes
 
 // ─── Persistent storage ───────────────────────────────────────────────────────
 
@@ -88,6 +92,76 @@ function pushRecentLine(code, line) {
     const buf = recentLines.get(code);
     buf.push(line);
     if (buf.length > 30) buf.shift();
+}
+
+// ─── Link codes from /link ────────────────────────────────────────────────────
+// /link in Discord creates a one-time code; the server owner enters it on the
+// Minecraft server (flowcmds link <code>), which proves access to both sides.
+
+const pendingLinks  = new Map(); // code → { channelId, guildId, label, userId, expires }
+const failedClaims  = new Map(); // server id → { count, since }
+
+function createLinkCode(channelId, guildId, label, userId) {
+    for (const [code, p] of pendingLinks) {
+        if (p.channelId === channelId) pendingLinks.delete(code); // one code per channel
+    }
+    let code;
+    do {
+        code = '';
+        for (let i = 0; i < 8; i++) code += LINK_CHARS[crypto.randomInt(LINK_CHARS.length)];
+        code = code.slice(0, 4) + '-' + code.slice(4);
+    } while (pendingLinks.has(code));
+    pendingLinks.set(code, { channelId, guildId, label, userId, expires: Date.now() + LINK_TTL });
+    return code;
+}
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [code, p] of pendingLinks) if (p.expires < now) pendingLinks.delete(code);
+}, 60000);
+
+// The plugin sent a code from /link: connect that channel to this Minecraft server
+async function claimLinkCode(entry, rawCode) {
+    const fails = failedClaims.get(entry.code);
+    if (fails && Date.now() - fails.since > LINK_TTL) failedClaims.delete(entry.code);
+    if ((failedClaims.get(entry.code)?.count ?? 0) >= MAX_FAILED_CLAIMS) {
+        return { ok: false, message: 'Too many wrong codes. Wait 10 minutes and try again.' };
+    }
+
+    const norm = String(rawCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const code = norm.slice(0, 4) + '-' + norm.slice(4);
+    const pending = pendingLinks.get(code);
+    if (!pending || pending.expires < Date.now()) {
+        const f = failedClaims.get(entry.code) ?? { count: 0, since: Date.now() };
+        f.count++;
+        failedClaims.set(entry.code, f);
+        return { ok: false, message: 'Unknown or expired code. Run /link in the Discord channel again and use the new code.' };
+    }
+    pendingLinks.delete(code);
+    failedClaims.delete(entry.code);
+
+    const ch = await discordClient.channels.fetch(pending.channelId).catch(() => null);
+    if (!ch) return { ok: false, message: 'The Discord channel no longer exists.' };
+
+    const label = pending.label || entry.name;
+    const previous = links[pending.channelId];
+    if (previous && previous.code !== entry.code) unlinkChannel(pending.channelId);
+    links[pending.channelId] = { code: entry.code, label, guildId: pending.guildId };
+    writeJson(LINKS_FILE, links);
+    safeSend(entry.ws, { type: 'linked', guildName: ch.guild?.name, channelName: ch.name });
+    console.log(`[Link] "${entry.name}" linked to #${ch.name} (${ch.guild?.name})`);
+
+    await ch.send({
+        embeds: [new EmbedBuilder().setColor(0x2ecc71).setTitle('Server Linked')
+            .setDescription(`This channel is now the console of **${escapeMarkdown(label)}**.\n` +
+                'Run commands with `/console`, see players/TPS with `/status`.')],
+        allowedMentions: NO_MENTIONS
+    }).catch(() => {});
+    // Show the last 30 console lines so the channel doesn't start empty
+    for (const content of packMessages((recentLines.get(entry.code) || []).flatMap(formatEntry))) {
+        await ch.send({ content, allowedMentions: NO_MENTIONS }).catch(() => {});
+    }
+    return { ok: true, message: `Linked to #${ch.name} in ${ch.guild?.name ?? 'Discord'}.` };
 }
 
 function safeSend(ws, obj) {
@@ -271,6 +345,31 @@ wss.on('connection', (ws) => {
 
         if (!entry) return;
 
+        // ── claim: code from /link entered on the Minecraft server ─────────────
+        if (pkt.type === 'claim') {
+            const id = String(pkt.id || '');
+            claimLinkCode(entry, pkt.code)
+                .catch((e) => { console.error('[Link] claim failed:', e); return { ok: false, message: 'Internal error, try again.' }; })
+                .then((r) => safeSend(ws, { type: 'result', id, ...r }));
+            return;
+        }
+
+        // ── unlink-request: flowcmds unlink on the Minecraft server ────────────
+        if (pkt.type === 'unlink-request') {
+            const id = String(pkt.id || '');
+            const channels = channelsForCode(entry.code);
+            safeSend(ws, { type: 'result', id, ok: true,
+                message: channels.length ? `Unlinked from ${channels.length} Discord channel(s).` : 'This server was not linked.' });
+            for (const channelId of channels) {
+                unlinkChannel(channelId); // the last one tells the plugin "unlinked"
+                discordClient.channels.fetch(channelId)
+                    .then((c) => c.send({ content: `🔌 **${escapeMarkdown(entry.name)}** was unlinked on the Minecraft server (\`flowcmds unlink\`).`, allowedMentions: NO_MENTIONS }))
+                    .catch(() => {});
+            }
+            if (!channels.length) safeSend(ws, { type: 'unlinked' });
+            return;
+        }
+
         // ── log ────────────────────────────────────────────────────────────────
         if (pkt.type === 'log') {
             const line = String(pkt.data || '').trim().slice(0, MAX_LINE);
@@ -443,14 +542,14 @@ async function handleCommand(interaction) {
                       value: 'Get the latest `FlowDiscordConsoleCmds.jar` (Paper/Spigot 1.18+):\n> https://github.com/johann123-a11y/flow-discord-console-cmds/releases/latest\nDrop it into `plugins/` and start the server once.' },
                     { name: '2.  Configure',
                       value: 'Edit `plugins/FlowDiscordConsoleCmds/config.yml`, then run `/flowcmds reload`:\n```yaml\nbot-url: "ws://YOUR_VPS_IP:8005"\nserver-name: "My Server"\n```' },
-                    { name: '3.  Get your link code',
-                      value: 'The server console shows `/link XXXX-XXXX` (or run `/flowcmds code`). Keep it private – whoever links it controls the console.' },
-                    { name: '4.  Link this channel',
-                      value: '```\n/link code:XXXX-XXXX label:My Server\n```\nThe server must be running and connected.' },
+                    { name: '3.  Get a link code',
+                      value: 'Run `/link` in the channel that should become the console. You get a code (only you can see it, valid 10 minutes).' },
+                    { name: '4.  Enter it on the server',
+                      value: '```\nflowcmds link XXXX-XXXX\n```\nin the server console (or `/flowcmds link XXXX-XXXX` in game as OP). Done – the channel is linked.' },
                     { name: 'Commands',
                       value: '`/link` `/unlink` `/console` `/status` `/servers`' },
                     { name: 'In-game commands',
-                      value: '`/flowcmds status | code | reconnect | reload | reset confirm`' },
+                      value: '`/flowcmds link <code> | unlink | status | reconnect | reload`' },
                     { name: 'Requirements',
                       value: '- This Discord server must be registered by the bot owner\n- VPS port **8005** open in firewall\n- Administrator permission in Discord' }
                 )
@@ -468,51 +567,40 @@ async function handleCommand(interaction) {
         });
     }
 
-    // ── /link <code> [label] ──────────────────────────────────────────────────
+    // ── /link [label] ─────────────────────────────────────────────────────────
+    // Gives a one-time code; entering it on the Minecraft server links this channel
     if (commandName === 'link') {
-        const code  = interaction.options.getString('code').toUpperCase().trim();
-        const label = (interaction.options.getString('label') || 'Minecraft Server').trim().slice(0, 64);
+        const label = (interaction.options.getString('label') || '').trim().slice(0, 64) || null;
 
-        if (!CODE_RE.test(code)) {
-            return interaction.reply({ content: 'That is not a valid link code.', flags: EPHEMERAL });
+        if (!interaction.channel?.isTextBased()) {
+            return interaction.reply({ content: 'Use this command in a text channel.', flags: EPHEMERAL });
         }
-        const conn = connections.get(code);
-        if (!conn) {
-            return interaction.reply({
-                content: 'No Minecraft server with this code is connected right now.\n' +
-                         'Start the server, check `bot-url` in its config and run `/flowcmds status` there.',
-                flags: EPHEMERAL
-            });
+        if (!interaction.appPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
+            return interaction.reply({ content: 'I need **View Channel** and **Send Messages** permission in this channel.', flags: EPHEMERAL });
         }
-        // A server belongs to the Discord server where it was linked first
-        const elsewhere = channelsForCode(code).some(id => guildOfLink(id) !== guildId);
-        if (elsewhere) {
+        const existing = links[channelId];
+        if (existing) {
             return interaction.reply({
-                content: 'This Minecraft server is already linked in another Discord server. It has to be unlinked there first.',
+                content: `This channel is already the console of **${escapeMarkdown(existing.label)}**. Use \`/unlink\` first.`,
                 flags: EPHEMERAL
             });
         }
 
-        const previous = links[channelId];
-        if (previous && previous.code !== code) unlinkChannel(channelId);
-
-        links[channelId] = { code, label, guildId };
-        writeJson(LINKS_FILE, links);
-        safeSend(conn.ws, { type: 'linked' });
-
-        await interaction.reply({
-            embeds: [new EmbedBuilder().setColor(0x2ecc71).setTitle('Server Linked')
-                .setDescription(`This channel is now the console of **${escapeMarkdown(label)}**.\n` +
-                    'Run commands with `/console`, see players/TPS with `/status`.')
-            ]
+        const code = createLinkCode(channelId, guildId, label, interaction.user.id);
+        return interaction.reply({
+            embeds: [new EmbedBuilder()
+                .setColor(0x5865f2)
+                .setTitle('Link a Minecraft server')
+                .setDescription(
+                    `Your link code: **\`${code}\`**\n` +
+                    'Valid for 10 minutes – only you can see it.\n\n' +
+                    '**Enter it on your Minecraft server:**\n' +
+                    `Server console: \`flowcmds link ${code}\`\n` +
+                    `In game (OP): \`/flowcmds link ${code}\``)
+                .setFooter({ text: 'The server must have the FlowDiscordConsoleCmds plugin and be connected to the bot.' })
+            ],
+            flags: EPHEMERAL
         });
-
-        // Post the last 30 buffered lines so the channel doesn't start empty
-        const recent = recentLines.get(code) || [];
-        for (const content of packMessages(recent.flatMap(formatEntry))) {
-            await interaction.channel.send({ content, allowedMentions: NO_MENTIONS });
-        }
-        return;
     }
 
     // ── /unlink ───────────────────────────────────────────────────────────────

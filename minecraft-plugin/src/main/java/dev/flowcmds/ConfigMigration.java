@@ -12,7 +12,7 @@ import java.util.function.Supplier;
 /**
  * The first version of this plugin (package de.flowdev.consolecmds) used the same data folder
  * with a different config layout ("connection: bot-url: ..."). This converts such a config,
- * and keeps its link code so Discord channels that are already linked keep working.
+ * and keeps its link code as server ID so Discord channels that are already linked keep working.
  */
 final class ConfigMigration {
 
@@ -52,8 +52,8 @@ final class ConfigMigration {
         if (code.matches("[A-Z0-9]{4}-[A-Z0-9]{4}")) {
             File dataFile = new File(dataFolder, "data.yml");
             YamlConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
-            if (!data.contains("link-code")) {
-                data.set("link-code", code);
+            if (!data.contains("server-id") && !data.contains("link-code")) {
+                data.set("server-id", code);
                 data.save(dataFile);
             }
         }

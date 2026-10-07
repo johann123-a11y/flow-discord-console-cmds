@@ -12,9 +12,8 @@ const globalCommands = [
 
     new SlashCommandBuilder()
         .setName('link')
-        .setDescription('Link this channel to a Minecraft server')
-        .addStringOption(o => o.setName('code').setDescription('Link code from the plugin console').setRequired(true).setMaxLength(32))
-        .addStringOption(o => o.setName('label').setDescription('Friendly name for this server').setRequired(false).setMaxLength(64)),
+        .setDescription('Get a code to link this channel to a Minecraft server')
+        .addStringOption(o => o.setName('label').setDescription('Name shown for the server (default: its server-name)').setRequired(false).setMaxLength(64)),
 
     new SlashCommandBuilder()
         .setName('unlink')

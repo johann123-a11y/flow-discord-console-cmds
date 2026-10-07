@@ -5,13 +5,12 @@
 # ============================================================
 #
 #  1. Set bot-url below and run /flowcmds reload
-#  2. The console prints a LINK CODE (or run: /flowcmds code)
-#  3. In the Discord channel that should become the console:  /link <code>
+#  2. In the Discord channel that should become the console run:  /link
+#  3. Enter the code you get here:  flowcmds link <code>
 #  Done: every console line shows up there, and /console <command> runs commands.
 
 # Address of the bot (WebSocket): ws://VPS_IP:PORT
-# Docker setup of the bot: dev container = port 8080, prod container = port 8081
-bot-url: "ws://127.0.0.1:8080"
+bot-url: "ws://127.0.0.1:8005"
 
 # Name shown in Discord for this server
 server-name: "My Minecraft Server"
