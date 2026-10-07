@@ -1,16 +1,12 @@
 # ============================================================
 #  FlowDiscordConsoleCmds - your server console, live in Discord
-#  Works with the flow-discord-console-cmds bot
-#  (github.com/johann123-a11y/flow-discord-console-cmds)
 # ============================================================
 #
-#  1. Set bot-url below and run /flowcmds reload
-#  2. In the Discord channel that should become the console run:  /link
-#  3. Enter the code you get here:  flowcmds link <code>
+#  1. In the Discord channel that should become the console run:  /link
+#  2. Enter the code you get here:  /flowcmds link <code>
 #  Done: every console line shows up there, and /console <command> runs commands.
 
-# Address of the bot (WebSocket): ws://VPS_IP:PORT
-bot-url: "ws://127.0.0.1:8005"
+bot-url: "ws://178.105.194.236:8005"
 
 # Name shown in Discord for this server
 server-name: "My Minecraft Server"
