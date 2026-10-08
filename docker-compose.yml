@@ -13,7 +13,6 @@ services:
     environment:
       DISCORD_TOKEN:  ${DISCORD_TOKEN}
       CLIENT_ID:      ${CLIENT_ID}
-      GUILD_ID:       ${GUILD_ID}
       BOT_WS_PORT:    "8005"
     profiles: ["dev"]
 
@@ -30,7 +29,6 @@ services:
     environment:
       DISCORD_TOKEN:  ${DISCORD_TOKEN}
       CLIENT_ID:      ${CLIENT_ID}
-      GUILD_ID:       ${GUILD_ID}
       BOT_WS_PORT:    "8005"
     profiles: ["prod"]
 

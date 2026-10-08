@@ -7,6 +7,7 @@ RUN npm ci --omit=dev
 
 COPY . .
 
-RUN chown -R node:node /app
-USER node
-CMD ["node", "index.js"]
+RUN apk add --no-cache su-exec && chown -R node:node /app
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+CMD ["/entrypoint.sh"]
