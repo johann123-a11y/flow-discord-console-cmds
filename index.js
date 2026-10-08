@@ -539,19 +539,17 @@ async function handleCommand(interaction) {
                 .setDescription('Bridge your Minecraft server console directly into Discord.')
                 .addFields(
                     { name: '1.  Install the plugin',
-                      value: 'You receive `FlowDiscordConsoleCmds.jar` after purchase.\nDrop it into your server\'s `plugins/` folder and start the server once.' },
-                    { name: '2.  Configure',
-                      value: 'Edit `plugins/FlowDiscordConsoleCmds/config.yml`, then run `/flowcmds reload`:\n```yaml\nbot-url: "ws://YOUR_VPS_IP:8005"\nserver-name: "My Server"\n```' },
-                    { name: '3.  Get a link code',
-                      value: 'Run `/link` in the channel that should become the console. You get a code (only you can see it, valid 10 minutes).' },
-                    { name: '4.  Enter it on the server',
-                      value: '```\nflowcmds link XXXX-XXXX\n```\nin the server console (or `/flowcmds link XXXX-XXXX` in game as OP). Done – the channel is linked.' },
-                    { name: 'Commands',
-                      value: '`/link` `/unlink` `/console` `/status` `/servers`' },
+                      value: 'Drop `FlowDiscordConsoleCmds.jar` (received after purchase) into your server\'s `plugins/` folder and restart the server.' },
+                    { name: '2.  Get a link code',
+                      value: 'Run `/link` in the Discord channel that should become the console.\nYou get a one-time code, valid for 10 minutes.' },
+                    { name: '3.  Link on the server',
+                      value: 'Enter this in your server console:\n```\nflowcmds link XXXX-XXXX\n```\nOr in-game as OP: `/flowcmds link XXXX-XXXX`' },
+                    { name: 'Discord commands',
+                      value: '`/link` — link a channel\n`/unlink` — unlink a channel\n`/console <cmd>` — run a console command\n`/status` — show server stats\n`/servers` — list connected servers' },
                     { name: 'In-game commands',
-                      value: '`/flowcmds link <code> | unlink | status | reconnect | reload`' },
+                      value: '`/flowcmds link <code>` — link this server\n`/flowcmds unlink` — unlink\n`/flowcmds status` — connection status\n`/flowcmds reconnect` — force reconnect\n`/flowcmds reload` — reload config' },
                     { name: 'Requirements',
-                      value: '- This Discord server must be registered by the bot owner\n- VPS port **8005** open in firewall\n- Administrator permission in Discord' }
+                      value: '- This Discord server must be registered by the bot owner\n- Discord **Administrator** permission to use all commands' }
                 )
                 .setFooter({ text: 'FlowDiscordConsoleCmds • Bukkit/Spigot/Paper' })
             ],
